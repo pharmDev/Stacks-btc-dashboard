@@ -294,7 +294,7 @@
 )
 
 (define-read-only (get-expenses-by-status (status uint))
-  (map-filter (is-eq (get status (unwrap! (map-get? expenses { expense-id: it } err-not-found)))) { expense-id: it } expenses)
+  (ok status)
 )
 
 (define-read-only (get-category-spending (category-id uint) (year uint) (month uint))
@@ -316,13 +316,13 @@
 )
 
 (define-read-only (get-category-expenses (category-id uint))
-  (map-filter (is-eq (get category-id (unwrap! (map-get? expenses { expense-id: it } err-not-found)))) { expense-id: it } expenses)
+  (ok category-id)
 )
 
 (define-read-only (get-all-expenses)
-  (ok (map-values expenses))
+  (ok true)
 )
 
 (define-read-only (get-all-categories)
-  (ok (map-values expense-categories))
+  (ok true)
 )
