@@ -112,4 +112,217 @@
 )
 
 ;; public functions
-;;
+(define-public (add-funds (amount uint))
+  (begin
+    (asserts! (> amount u0) err-invalid-amount)
+    (var-set total-balance (+ (var-get total-balance) amount))
+    (ok (var-get total-balance))
+  )
+)
+
+(define-public (add-expense (description (string-ascii 256)) (amount uint) (recipient principal) (category-id uint) (notes (string-ascii 512)))
+  (let (
+    (expense-id (var-get expense-counter))
+    (current-time (get-current-time))
+    (category (map-get? expense-categories { category-id: category-id }))
+  )
+    (begin
+      (asserts! (is-owner) err-owner-only)
+      (asserts! (> amount u0) err-invalid-amount)
+      (asserts! (not (is-none category)) err-not-found)
+      (asserts! (get active (unwrap! category err-not-found)) err-not-found)
+      
+      (map-set expenses 
+        { expense-id: expense-id } 
+        { 
+          description: description, 
+          amount: amount, 
+          status: status-pending, 
+          recipient: recipient,
+          category-id: category-id,
+          created-by: tx-sender,
+          created-at: current-time,
+          last-modified: current-time,
+          approver: none,
+          payment-tx: none,
+          notes: notes
+        }
+      )
+      (var-set expense-counter (+ expense-id u1))
+      (var-set total-expenses-pending (+ (var-get total-expenses-pending) amount))
+      (ok expense-id)
+    )
+  )
+)
+
+(define-public (approve-expense (expense-id uint))
+  (let (
+    (expense (unwrap! (map-get? expenses { expense-id: expense-id }) err-not-found))
+    (current-time (get-current-time))
+  )
+    (begin
+      (asserts! (is-owner) err-owner-only)
+      (asserts! (is-eq (get status expense) status-pending) err-invalid-status)
+      (asserts! (check-category-budget (get category-id expense) (get amount expense)) err-budget-exceeded)
+      
+      (map-set expenses 
+        { expense-id: expense-id }
+        (merge expense { 
+          status: status-approved,
+          approver: (some tx-sender),
+          last-modified: current-time
+        })
+      )
+      (ok true)
+    )
+  )
+)
+
+(define-public (reject-expense (expense-id uint) (rejection-note (string-ascii 512)))
+  (let (
+    (expense (unwrap! (map-get? expenses { expense-id: expense-id }) err-not-found))
+    (current-time (get-current-time))
+  )
+    (begin
+      (asserts! (is-owner) err-owner-only)
+      (asserts! (is-eq (get status expense) status-pending) err-invalid-status)
+      
+      (map-set expenses 
+        { expense-id: expense-id }
+        (merge expense { 
+          status: status-rejected,
+          approver: (some tx-sender),
+          last-modified: current-time,
+          notes: rejection-note
+        })
+      )
+      (var-set total-expenses-pending (- (var-get total-expenses-pending) (get amount expense)))
+      (ok true)
+    )
+  )
+)
+
+(define-public (pay-expense (expense-id uint) (payment-tx (string-ascii 64)))
+  (let (
+    (expense (unwrap! (map-get? expenses { expense-id: expense-id }) err-not-found))
+    (current-balance (var-get total-balance))
+    (current-time (get-current-time))
+  )
+    (begin
+      (asserts! (is-owner) err-owner-only)
+      (asserts! (is-eq (get status expense) status-approved) err-invalid-status)
+      (asserts! (>= current-balance (get amount expense)) err-insufficient-funds)
+      
+      (map-set expenses 
+        { expense-id: expense-id }
+        (merge expense { 
+          status: status-paid,
+          last-modified: current-time,
+          payment-tx: (some payment-tx)
+        })
+      )
+      (var-set total-balance (- current-balance (get amount expense)))
+      (var-set total-expenses-paid (+ (var-get total-expenses-paid) (get amount expense)))
+      (var-set total-expenses-pending (- (var-get total-expenses-pending) (get amount expense)))
+      (update-category-spending (get category-id expense) (get amount expense))
+      (as-contract (stx-transfer? (get amount expense) tx-sender (get recipient expense)))
+    )
+  )
+)
+
+(define-public (cancel-expense (expense-id uint))
+  (let (
+    (expense (unwrap! (map-get? expenses { expense-id: expense-id }) err-not-found))
+    (current-time (get-current-time))
+  )
+    (begin
+      (asserts! (or (is-owner) (is-eq tx-sender (get created-by expense))) err-owner-only)
+      (asserts! (or (is-eq (get status expense) status-pending) (is-eq (get status expense) status-approved)) err-invalid-status)
+      
+      (map-set expenses 
+        { expense-id: expense-id }
+        (merge expense { 
+          status: status-cancelled,
+          last-modified: current-time
+        })
+      )
+      (var-set total-expenses-pending (- (var-get total-expenses-pending) (get amount expense)))
+      (ok true)
+    )
+  )
+)
+
+(define-public (add-category (name (string-ascii 64)) (budget uint))
+  (let (
+    (category-id (var-get category-counter))
+  )
+    (begin
+      (asserts! (is-owner) err-owner-only)
+      (var-set category-counter (+ category-id u1))
+      (map-set expense-categories
+        { category-id: category-id }
+        {
+          name: name,
+          budget: budget,
+          active: true
+        }
+      )
+      (ok category-id)
+    )
+  )
+)
+
+;; read-only functions
+(define-read-only (get-expense (expense-id uint))
+  (map-get? expenses { expense-id: expense-id })
+)
+
+(define-read-only (get-category (category-id uint))
+  (map-get? expense-categories { category-id: category-id })
+)
+
+(define-read-only (get-balance)
+  (var-get total-balance)
+)
+
+(define-read-only (get-total-expenses-paid)
+  (var-get total-expenses-paid)
+)
+
+(define-read-only (get-total-expenses-pending)
+  (var-get total-expenses-pending)
+)
+
+(define-read-only (get-expenses-by-status (status uint))
+  (ok status)
+)
+
+(define-read-only (get-category-spending (category-id uint) (year uint) (month uint))
+  (let (
+    (spending (default-to { total-spent: u0 } 
+      (map-get? category-spending { category-id: category-id, year: year, month: month })))
+  )
+    (ok (get total-spent spending))
+  )
+)
+
+(define-read-only (get-monthly-budget (year uint) (month uint))
+  (let (
+    (budget (default-to { budget-amount: u0 } 
+      (map-get? monthly-budgets { year: year, month: month })))
+  )
+    (ok (get budget-amount budget))
+  )
+)
+
+(define-read-only (get-category-expenses (category-id uint))
+  (ok category-id)
+)
+
+(define-read-only (get-all-expenses)
+  (ok true)
+)
+
+(define-read-only (get-all-categories)
+  (ok true)
+)
