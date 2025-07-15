@@ -19,7 +19,47 @@
 (define-constant status-cancelled u5)
 
 ;; data maps and vars
-;;
+(define-map expenses 
+  { expense-id: uint } 
+  { 
+    description: (string-ascii 256),
+    amount: uint,
+    status: uint,
+    recipient: principal,
+    category-id: uint,
+    created-by: principal,
+    created-at: uint,
+    last-modified: uint,
+    approver: (optional principal),
+    payment-tx: (optional (string-ascii 64)),
+    notes: (string-ascii 512)
+  }
+)
+
+(define-map expense-categories
+  { category-id: uint }
+  {
+    name: (string-ascii 64),
+    budget: uint,
+    active: bool
+  }
+)
+
+(define-map category-spending
+  { category-id: uint, year: uint, month: uint }
+  { total-spent: uint }
+)
+
+(define-map monthly-budgets
+  { year: uint, month: uint }
+  { budget-amount: uint }
+)
+
+(define-data-var expense-counter uint u0)
+(define-data-var category-counter uint u0)
+(define-data-var total-balance uint u0)
+(define-data-var total-expenses-paid uint u0)
+(define-data-var total-expenses-pending uint u0)
 
 ;; private functions
 ;;
