@@ -62,7 +62,54 @@
 (define-data-var total-expenses-pending uint u0)
 
 ;; private functions
-;;
+(define-private (is-owner)
+  (is-eq tx-sender contract-owner)
+)
+
+(define-private (get-current-time)
+  block-height
+)
+
+(define-private (get-year-month (timestamp uint))
+  (let (
+    (year u2023) ;; Simplified - in production would calculate from block height
+    (month u1)   ;; Simplified - in production would calculate from block height
+  )
+    { year: year, month: month }
+  )
+)
+
+(define-private (update-category-spending (category-id uint) (amount uint))
+  (let (
+    (time-data (get-year-month (get-current-time)))
+    (year (get year time-data))
+    (month (get month time-data))
+    (current-spending (default-to { total-spent: u0 } 
+      (map-get? category-spending { category-id: category-id, year: year, month: month })))
+    (new-total (+ (get total-spent current-spending) amount))
+  )
+    (map-set category-spending
+      { category-id: category-id, year: year, month: month }
+      { total-spent: new-total }
+    )
+    new-total
+  )
+)
+
+(define-private (check-category-budget (category-id uint) (amount uint))
+  (let (
+    (category (unwrap! (map-get? expense-categories { category-id: category-id }) false))
+    (time-data (get-year-month (get-current-time)))
+    (year (get year time-data))
+    (month (get month time-data))
+    (current-spending (default-to { total-spent: u0 } 
+      (map-get? category-spending { category-id: category-id, year: year, month: month })))
+    (budget (get budget category))
+    (projected-spending (+ (get total-spent current-spending) amount))
+  )
+    (<= projected-spending budget)
+  )
+)
 
 ;; public functions
 ;;
